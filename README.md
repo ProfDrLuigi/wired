@@ -66,9 +66,13 @@ Then check that the `libwired` directory was not empty and `configure` file exis
 
 During the configuration, scripts will check that your environment fills the requirements described at the top of this document. You will be warned if any of the required component is missing on your operating system.
 
-To start configuration, use the following command:
+To start configuration for Intel/AMD, use the following command:
 
 	./configure
+
+To start configuration for ARM, use the following command:
+
+	./configure --build=aarch64 --host=aarch64
 
 Wired Server is designed to be installed into `/usr/local` by default. To change this, run:
 
