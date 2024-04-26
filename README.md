@@ -70,7 +70,7 @@ To start configuration for Intel/AMD, use the following command:
 
 	./configure
 
-To start configuration for ARM, use the following command:
+To start configuration for arm64, use the following command:
 
 	./configure --build=aarch64 --host=aarch64
 
