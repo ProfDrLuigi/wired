@@ -916,7 +916,7 @@ void wd_accounts_add_download_statistics(wd_account_t *account, wi_boolean_t fin
 														 "download_transferred = download_transferred + ? "
 														 "WHERE name = ?"),
 									 WI_INT32(finished ? 1 : 0),
-									 WI_INT32(transferred),
+									 wi_number_with_int64((int64_t) transferred),
 									 wd_account_name(account),
 									 NULL)) {
 		wi_log_error(WI_STR("Could not execute database statement: %m"));
@@ -931,7 +931,7 @@ void wd_accounts_add_upload_statistics(wd_account_t *account, wi_boolean_t finis
 														 "upload_transferred = upload_transferred + ? "
 														 "WHERE name = ?"),
 									 WI_INT32(finished ? 1 : 0),
-									 WI_INT32(transferred),
+									 wi_number_with_int64((int64_t) transferred),
 									 wd_account_name(account),
 									 NULL)) {
 		wi_log_error(WI_STR("Could not execute database statement: %m"));

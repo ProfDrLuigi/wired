@@ -55,11 +55,6 @@ Initialize and update submodules repositories:
 	git submodule update --init --recursive --remote
 	libwired/bootstrap
 
-Let´s do some minor fixes:
-
-	find . -type f -exec sed -i 's/\-O2/\-O2\ \-fno\-stack\-protector/gI' {} \;
-
-
 Then check that the `libwired` directory was not empty and `configure` file exists.
 
 ##### 3. Run the configuration script:
@@ -144,5 +139,4 @@ If you are interested in the Wired project, check the Website at [https://wired.
 ### Troubleshootings
 
 This implementation of the Wired 2.0/2.5 protocol is not compliant with the version of the protocol distributed by Zanka Software, for several deep technical reasons.
-
 

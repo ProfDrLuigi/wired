@@ -401,7 +401,7 @@ static wi_p7_socket_t * wc_connect(wi_url_t *url) {
 		
 		if(!wi_p7_socket_connect(p7_socket,
 								 10.0,
-								 WI_P7_ENCRYPTION_RSA_AES256_SHA1 | WI_P7_CHECKSUM_SHA1,
+								 WI_P7_ENCRYPTION_RSA_AES256_SHA512 | WI_P7_CHECKSUM_SHA512,
 								 WI_P7_BINARY,
 								 wi_url_user(url),
 								 wi_string_sha1(wi_url_password(url)))) {
@@ -431,7 +431,7 @@ static wi_boolean_t wc_login(wi_p7_socket_t *socket, wi_url_t *url) {
 	message = wi_p7_message_with_name(WI_STR("wired.client_info"), wc_spec);
 	wi_p7_message_set_string_for_name(message, WI_STR("transfertest"), WI_STR("wired.info.application.name"));
 	wi_p7_message_set_string_for_name(message, WI_STR("1.0"), WI_STR("wired.info.application.version"));
-	wi_p7_message_set_uint32_for_name(message, 1, WI_STR("wired.info.application.build"));
+	wi_p7_message_set_string_for_name(message, WI_STR("1"), WI_STR("wired.info.application.build"));
 	wi_p7_message_set_string_for_name(message, wi_process_os_name(wi_process()), WI_STR("wired.info.os.name"));
 	wi_p7_message_set_string_for_name(message, wi_process_os_release(wi_process()), WI_STR("wired.info.os.version"));
 	wi_p7_message_set_string_for_name(message, wi_process_os_arch(wi_process()), WI_STR("wired.info.arch"));
