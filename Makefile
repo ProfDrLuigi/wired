@@ -16,7 +16,7 @@ WD_MAINTAINER		= 0
 WD_USER				= nark
 WD_GROUP			= daemon
 
-DISTFILES			= INSTALL LICENSE NEWS README Makefile Makefile.in \
+DISTFILES			= INSTALL LICENSE NEWS README.md Makefile Makefile.in \
 					  config.guess config.status config.h.in config.sub configure \
 					  configure.in install-sh libwired man run thirdparty wired
 SUBDIRS				= libwired
@@ -147,6 +147,19 @@ install-wired:
 
 	if [ ! -f $(installdir)/banner.png ]; then \
 		$(INSTALL) -m 644 -o $(WD_USER) -g $(WD_GROUP) $(rundir)/banner.png $(installdir)/; \
+	fi
+
+	if [ ! -f $(installdir)/robo.png ]; then \
+		$(INSTALL) -m 644 -o $(WD_USER) -g $(WD_GROUP) $(rundir)/robo.png $(installdir)/; \
+	fi
+
+	@if [ ! -p $(installdir)/WiredBot ]; then \
+		if [ -e $(installdir)/WiredBot ]; then \
+			echo "Error: $(installdir)/WiredBot exists and is not a named pipe"; \
+			exit 1; \
+		fi; \
+		mkfifo -m 660 $(installdir)/WiredBot; \
+		chown $(WD_USER):$(WD_GROUP) $(installdir)/WiredBot; \
 	fi
 
 	$(INSTALL) -m 644 -o $(WD_USER) -g $(WD_GROUP) $(rundir)/wired.xml $(installdir)/

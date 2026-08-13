@@ -33,6 +33,7 @@
 
 #include "chats.h"
 #include "server.h"
+#include "watch.h"
 
 #define WD_PUBLIC_CHAT_ID			1
 
@@ -407,6 +408,8 @@ void wd_chat_reply_user_list(wd_chat_t *chat, wd_user_t *user, wi_p7_message_t *
 	}
 	
 	wi_array_unlock(chat->users);
+
+	wd_watch_reply_user_list(chat, user, message);
 
 	reply = wi_p7_message_with_name(WI_STR("wired.chat.user_list.done"), wd_p7_spec);
 	wi_p7_message_set_uint32_for_name(reply, chat->id, WI_STR("wired.chat.id"));

@@ -36,6 +36,7 @@
 #include "settings.h"
 #include "trackers.h"
 #include "transfers.h"
+#include "watch.h"
 
 wi_config_t						*wd_config;
 
@@ -69,6 +70,13 @@ void wd_settings_initialize(void) {
 		WI_INT32(WI_CONFIG_INTEGER),			WI_STR("total uploads"),
 		WI_INT32(WI_CONFIG_STRINGLIST),			WI_STR("tracker"),
 		WI_INT32(WI_CONFIG_USER),				WI_STR("user"),
+		WI_INT32(WI_CONFIG_BOOL),				WI_STR("watch enabled"),
+		WI_INT32(WI_CONFIG_PATH),				WI_STR("watch icon"),
+		WI_INT32(WI_CONFIG_STRING),				WI_STR("watch message"),
+		WI_INT32(WI_CONFIG_STRING),				WI_STR("watch name"),
+		WI_INT32(WI_CONFIG_PATH),				WI_STR("watch path"),
+		WI_INT32(WI_CONFIG_PATH),				WI_STR("watch pipe"),
+		WI_INT32(WI_CONFIG_STRING),				WI_STR("watch status"),
 		NULL);
 	
 	defaults = wi_dictionary_with_data_and_keys(
@@ -95,6 +103,13 @@ void wd_settings_initialize(void) {
 		WI_INT32(10),							WI_STR("total uploads"),
 		wi_array(),								WI_STR("tracker"),
 		WI_STR("wired"),						WI_STR("user"),
+		wi_number_with_bool(false),				WI_STR("watch enabled"),
+		WI_STR(""),							WI_STR("watch icon"),
+		WI_STR("New file available: $FILE ($SIZE)"), WI_STR("watch message"),
+		WI_STR("Wired Server"),				WI_STR("watch name"),
+		WI_STR(""),							WI_STR("watch path"),
+		WI_STR(""),							WI_STR("watch pipe"),
+		WI_STR("File notifications"),			WI_STR("watch status"),
 		NULL);
 	
 	wd_config = wi_config_init_with_path(wi_config_alloc(), wd_config_path, types, defaults);
@@ -123,6 +138,7 @@ void wd_settings_apply_settings(wi_set_t *changes) {
 	wd_server_apply_settings(changes);
 	wd_trackers_apply_settings(changes);
 	wd_transfers_apply_settings(changes);
+	wd_watch_apply_settings(changes);
 }
 
 

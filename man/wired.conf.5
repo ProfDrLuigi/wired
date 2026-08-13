@@ -76,6 +76,38 @@ Example: description = My Wired Server
 Path to the files directory.
 .Pp
 Example: files = files
+.It Va watch path
+Path to a directory that is recursively monitored for new files and folders. New items are announced in the public chat after they have stopped changing. If a populated folder is added, only the folder itself is announced; its existing contents are silently added to the baseline. Items already present when the server starts or the setting is reloaded are used as the initial baseline and are not announced.
+.Pp
+Example: watch path = files/Uploads
+.It Va watch enabled
+If set to yes, enables the virtual user, the configured watch path and the local message pipe. If set to no, removes the virtual user from the public chat and stops both inputs.
+.Pp
+Example: watch enabled = no
+.It Va watch pipe
+Path to a named pipe used to send messages to the public chat through the virtual user. The server creates the pipe when needed. Each newline-terminated line written to it is sent as one chat message. Relative paths are resolved from the Wired server directory. HTML may be used for formatted messages. The aliases <n>...</n> and <bold>...</bold> are converted to a neutral HTML container and bold text. The pipe is inactive when watch enabled is set to no.
+.Pp
+Example: watch pipe = WiredBot
+.Pp
+Shell example: echo "Hello World." > /opt/wired/WiredBot
+.Pp
+Formatted example: echo '<n>☹️ <bold>Hello</bold></n>' > /opt/wired/WiredBot
+.It Va watch message
+Text sent to the public chat when a new item is detected. The placeholder $FILE is replaced with the relative path. For files, $SIZE is replaced with the formatted file size; for folders it is replaced with the word "folder".
+.Pp
+Example: watch message = New stuff has arrived: $FILE
+.It Va watch name
+Name of the virtual user that announces new items in the public chat.
+.Pp
+Example: watch name = Wired Server
+.It Va watch status
+Status of the virtual user that announces new items in the public chat.
+.Pp
+Example: watch status = File notifications
+.It Va watch icon
+Path to the image used as the icon of the virtual user. Relative paths are resolved from the Wired server directory. Leave this setting empty to use no icon.
+.Pp
+Example: watch icon = file-notifier.png
 .It Va group
 Name or id of the group that
 .Xr wired 8

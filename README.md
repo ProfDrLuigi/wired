@@ -109,6 +109,168 @@ Or, on BSD-like unices, type:
 
 This will require write permissions to `/usr/local/`, or whatever directory you set as the prefix above. Depending of your OS setup, you may require to use `sudo`.
 
+### WiredBot: file announcements and local chat messages
+
+Wired Server includes a virtual chat user named **WiredBot**. It can announce
+new files and folders from a watched directory and can accept chat messages
+from local programs through a named pipe. Both inputs use the same configurable
+name, status and icon and post to the public chat like a regular user.
+
+#### Installed files
+
+`make install` prepares these resources in the Wired installation directory:
+
+* `robo.png` — the default WiredBot icon.
+* `WiredBot` — a named pipe (FIFO), owned by the configured Wired user and
+  group with mode `0660`.
+
+Existing copies are preserved during updates. Installation stops with an error
+instead of overwriting `WiredBot` if that path exists but is not a named pipe.
+
+The shipped configuration refers to both resources but keeps the bot disabled
+until it is explicitly enabled:
+
+```ini
+watch enabled = no
+watch pipe = WiredBot
+watch icon = robo.png
+```
+
+#### Complete configuration example
+
+Add or edit the following settings in `<wired-root>/etc/wired.conf`:
+
+```ini
+# Enable the virtual user, directory watcher and local message pipe.
+watch enabled = yes
+
+# Optional directory monitored recursively for new files and folders.
+watch path = files/Uploads
+
+# Message used for file and folder announcements.
+watch message = New stuff has arrived: $FILE ($SIZE)
+
+# Local FIFO used by scripts and other local processes.
+watch pipe = WiredBot
+
+# Identity shown in the public chat user list.
+watch name = WiredBot
+watch status = Watching for new files
+watch icon = robo.png
+```
+
+Relative paths are resolved from the Wired installation directory. Absolute
+paths may also be used. After changing the configuration, validate and reload
+it without restarting the server:
+
+```sh
+<wired-root>/wiredctl configtest
+<wired-root>/wiredctl reload
+```
+
+For example, with Wired installed in `/opt/wired`:
+
+```sh
+/opt/wired/wiredctl configtest
+/opt/wired/wiredctl reload
+```
+
+#### Directory watcher behavior
+
+When `watch path` is configured, the server scans that directory recursively:
+
+* Items already present when the server starts or reloads its configuration
+  form the initial baseline and are not announced.
+* A new file is announced only after its size and modification time have
+  stopped changing.
+* A newly copied directory is announced once as a directory. Files and nested
+  directories already arriving inside it are added to the baseline silently
+  and are not announced individually.
+* Files created later inside an already known directory are announced normally.
+* Invisible paths are ignored.
+
+The announcement template supports these placeholders:
+
+* `$FILE` — path relative to `watch path`.
+* `$SIZE` — formatted file size; for a directory this becomes `folder`.
+
+Examples:
+
+```ini
+watch message = New stuff has arrived: $FILE
+```
+
+```ini
+watch message = New item: $FILE ($SIZE)
+```
+
+#### Sending messages from Debian programs
+
+Every newline-terminated line written to the FIFO becomes one public-chat
+message from WiredBot. With Wired installed in `/opt/wired`, use:
+
+```sh
+echo "Hello World." > /opt/wired/WiredBot
+```
+
+Multiple lines produce multiple chat messages:
+
+```sh
+printf 'First message\nSecond message\n' > /opt/wired/WiredBot
+```
+
+Programs running as another Unix user require write permission through the
+FIFO's owner or group. Prefer adding that user to the configured Wired group
+instead of making the pipe world-writable.
+
+Messages may contain HTML supported by Wired Client. Two convenience aliases
+are also accepted:
+
+* `<n>...</n>` creates a neutral message container.
+* `<bold>...</bold>` renders its contents in bold.
+
+For example:
+
+```sh
+echo '<n>☹️ <bold>Hello</bold></n>' > /opt/wired/WiredBot
+```
+
+This is delivered as:
+
+```html
+<span>☹️ <strong>Hello</strong></span>
+```
+
+HTML display must be enabled in the receiving Wired Client. Because FIFO input
+may contain HTML, grant write access only to trusted local users and services.
+Messages larger than 64 KiB are discarded.
+
+#### Changing the bot identity
+
+The virtual user's appearance is controlled entirely through `wired.conf`:
+
+```ini
+watch name = Wired Server
+watch status = File notifications
+watch icon = robo.png
+```
+
+The icon may use a relative path below the Wired installation directory or an
+absolute path. Identity changes take effect after `wiredctl reload` and are
+broadcast to connected clients.
+
+#### Disabling WiredBot
+
+To remove the virtual user from the public chat and stop both the directory
+watcher and FIFO processing, set:
+
+```ini
+watch enabled = no
+```
+
+Then reload the configuration. The FIFO may remain in the installation
+directory so it is immediately available the next time the bot is enabled.
+
 ##### 6. Running Wired Server
 
 By default a user with the login "admin" and no password is created. Use Wired Client or Wire to connect to your newly installed Wired Server. 
@@ -139,4 +301,3 @@ If you are interested in the Wired project, check the Website at [https://wired.
 ### Troubleshootings
 
 This implementation of the Wired 2.0/2.5 protocol is not compliant with the version of the protocol distributed by Zanka Software, for several deep technical reasons.
-

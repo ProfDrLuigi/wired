@@ -52,6 +52,7 @@
 #include "settings.h"
 #include "trackers.h"
 #include "transfers.h"
+#include "watch.h"
 
 static void						wd_cleanup(void);
 static void						wd_usage(void);
@@ -256,6 +257,7 @@ int main(int argc, const char **argv) {
 	wd_settings_initialize();
 	wd_trackers_initialize();
 	wd_transfers_initialize();
+	wd_watch_initialize();
 
 	if(!wd_settings_read_config())
 		exit(1);
@@ -611,5 +613,5 @@ static void wd_schedule(void) {
 	wd_trackers_schedule();
 	wd_transfers_schedule();
 	wd_users_schedule();
+	wd_watch_schedule();
 }
-

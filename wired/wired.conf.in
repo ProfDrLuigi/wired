@@ -95,6 +95,39 @@ files = files
 # (default 14400)
 # index time = 14400
 
+# Recursively watch a directory and announce new files or folders in the
+# public chat. When a populated folder arrives, only the folder itself is
+# announced; its existing contents are added to the baseline silently.
+# Existing items are not announced. An item is announced only after it has
+# stopped changing.
+# (default "no")
+watch enabled = no
+
+# Directory monitored when the watcher is enabled.
+# (no default)
+# watch path = files/Uploads
+
+# Named pipe used to send text to the virtual chat user from local processes.
+# Each newline-terminated line is posted to the public chat unchanged. Relative
+# paths are resolved from the Wired server directory. The aliases <n>...</n>
+# and <bold>...</bold> are rendered as a normal HTML container and bold text.
+# The pipe itself is installed by make install.
+watch pipe = WiredBot
+
+# Text sent to the public chat for a new item. $FILE is replaced with the
+# relative path. For files, $SIZE is the formatted size; for folders it is
+# replaced with "folder".
+# (default "New file available: $FILE ($SIZE)")
+# watch message = New stuff has arrived: $FILE
+
+# Name, status and optional icon of the virtual chat user. Relative icon
+# paths are resolved from the Wired server directory.
+# (defaults "Wired Server", "File notifications" and no icon when omitted)
+# watch name = Wired Server
+# watch status = File notifications
+# robo.png is installed by make install.
+watch icon = robo.png
+
 
 ### TRANSFERS #########################################################
 
