@@ -2033,7 +2033,7 @@ static wi_string_t * wd_account_sqlite3_insert_string(wd_account_t *account, wi_
 					case WD_ACCOUNT_FIELD_NUMBER:
 					case WD_ACCOUNT_FIELD_BOOLEAN:
 					case WD_ACCOUNT_FIELD_ENUM:
-						wi_mutable_string_append_format(sqlvalues, WI_STR("%u"), wi_number_integer(value));
+						wi_mutable_string_append_format(sqlvalues, WI_STR("%lld"), (long long) wi_number_integer(value));
 						break;
 						
 					case WD_ACCOUNT_FIELD_LIST:
@@ -2084,7 +2084,7 @@ static wi_string_t * wd_account_sqlite3_update_string(wd_account_t *account, wi_
 						
 					case WD_ACCOUNT_FIELD_NUMBER:
 					case WD_ACCOUNT_FIELD_BOOLEAN: 
-                        wi_mutable_string_append_format(string, WI_STR("%u"), wi_number_integer(value));
+                        wi_mutable_string_append_format(string, WI_STR("%lld"), (long long) wi_number_integer(value));
                         break;
 						
 					case WD_ACCOUNT_FIELD_LIST:
