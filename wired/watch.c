@@ -41,6 +41,7 @@
 #include "watch.h"
 
 #define WD_WATCH_INTERVAL               2.0
+#define WD_WATCH_FALLBACK_INTERVAL      30.0
 #define WD_WATCH_USER_ID                0
 #define WD_WATCH_USER_COLOR             4
 #define WD_WATCH_DEFAULT_MESSAGE        "New file available: $FILE ($SIZE)"
@@ -50,6 +51,8 @@
 
 
 static void                             wd_watch_scan(wi_timer_t *);
+static void                             wd_watch_fsevents_thread(wi_runtime_instance_t *);
+static void                             wd_watch_fsevents_callback(wi_string_t *);
 static void                             wd_watch_announce_path(wi_string_t *, wi_string_t *);
 static wi_boolean_t                     wd_watch_path_is_descendant_of_path(wi_string_t *, wi_string_t *);
 static int                              wd_watch_open_pipe(wi_string_t *);
@@ -65,6 +68,7 @@ static void                             wd_watch_set_user_fields(wi_p7_message_t
 
 static wi_lock_t                        *wd_watch_lock;
 static wi_timer_t                       *wd_watch_timer;
+static wi_fsevents_t                    *wd_watch_fsevents;
 static wi_string_t                      *wd_watch_path;
 static wi_string_t                      *wd_watch_message;
 static wi_string_t                      *wd_watch_name;
@@ -78,15 +82,26 @@ static int                              wd_watch_pipe_fd;
 static wi_boolean_t                     wd_watch_pipe_overflow;
 static wi_boolean_t                     wd_watch_enabled;
 static wi_boolean_t                     wd_watch_baseline_pending;
+static wi_boolean_t                     wd_watch_fsevents_running;
+static wi_boolean_t                     wd_watch_fsevents_reset;
+static wi_boolean_t                     wd_watch_dirty;
+static wi_time_interval_t               wd_watch_last_event;
+static wi_time_interval_t               wd_watch_scan_interval;
 
 
 
 void wd_watch_initialize(void) {
     wd_watch_lock               = wi_lock_init(wi_lock_alloc());
     wd_watch_timer              = wi_timer_init_with_function(wi_timer_alloc(), wd_watch_scan, 0.0, true);
+    wd_watch_fsevents           = wi_fsevents_init(wi_fsevents_alloc());
     wd_watch_known_files        = wi_dictionary_init(wi_mutable_dictionary_alloc());
     wd_watch_candidates         = wi_dictionary_init(wi_mutable_dictionary_alloc());
     wd_watch_pipe_fd            = -1;
+
+    if(wd_watch_fsevents)
+        wi_fsevents_set_callback(wd_watch_fsevents, wd_watch_fsevents_callback);
+    else
+        wi_log_warn(WI_STR("Could not create watch fsevents, falling back to polling: %m"));
 }
 
 
@@ -177,6 +192,7 @@ void wd_watch_apply_settings(wi_set_t *changes) {
         wd_watch_path = enabled && realpath ? wi_retain(realpath) : NULL;
         wd_watch_enabled = enabled;
         wd_watch_baseline_pending = enabled && realpath;
+        wd_watch_fsevents_reset = true;
 
         wi_mutable_dictionary_remove_all_data(wd_watch_known_files);
         wi_mutable_dictionary_remove_all_data(wd_watch_candidates);
@@ -214,16 +230,149 @@ void wd_watch_apply_settings(wi_set_t *changes) {
 
 
 void wd_watch_schedule(void) {
-    wi_boolean_t enabled;
+    wi_boolean_t enabled, start_fsevents, fsevents_running;
+
+    start_fsevents = false;
 
     wi_lock_lock(wd_watch_lock);
     enabled = wd_watch_enabled;
+
+    if(enabled && wd_watch_fsevents) {
+        if(!wd_watch_fsevents_running) {
+            wd_watch_fsevents_running = true;
+            start_fsevents = true;
+        }
+
+        wd_watch_dirty = true;
+        wd_watch_scan_interval = WD_WATCH_INTERVAL;
+        wd_watch_last_event = wi_time_interval() - WD_WATCH_INTERVAL;
+    } else if(!enabled) {
+        wd_watch_dirty = false;
+    }
+
+    fsevents_running = wd_watch_fsevents_running;
     wi_lock_unlock(wd_watch_lock);
 
-    if(enabled)
+    if(start_fsevents && !wi_thread_create_thread(wd_watch_fsevents_thread, NULL)) {
+        wi_lock_lock(wd_watch_lock);
+        wd_watch_fsevents_running = false;
+        fsevents_running = false;
+        wi_lock_unlock(wd_watch_lock);
+
+        wi_log_error(WI_STR("Could not create watch fsevents thread, falling back to polling: %m"));
+    }
+
+    if(enabled && fsevents_running)
+        wi_timer_invalidate(wd_watch_timer);
+    else if(enabled)
         wi_timer_reschedule(wd_watch_timer, WD_WATCH_INTERVAL);
     else
         wi_timer_invalidate(wd_watch_timer);
+}
+
+
+
+#pragma mark -
+
+static void wd_watch_fsevents_thread(wi_runtime_instance_t *argument) {
+    wi_pool_t            *pool;
+    wi_time_interval_t   now, last_event, scan_interval, timeout;
+    wi_boolean_t         enabled, dirty, scan;
+
+    pool = wi_pool_init(wi_pool_alloc());
+
+    while(true) {
+        wi_lock_lock(wd_watch_lock);
+        enabled = wd_watch_enabled;
+        dirty = wd_watch_dirty;
+        last_event = wd_watch_last_event;
+        scan_interval = wd_watch_scan_interval;
+        wi_lock_unlock(wd_watch_lock);
+
+        scan = false;
+
+        if(!enabled) {
+            wi_boolean_t reset;
+
+            wi_lock_lock(wd_watch_lock);
+            reset = wd_watch_fsevents_reset;
+
+            if(reset)
+                wd_watch_fsevents_reset = false;
+
+            wi_lock_unlock(wd_watch_lock);
+
+            if(reset)
+                wi_fsevents_remove_all_paths(wd_watch_fsevents);
+        }
+
+        if(enabled && dirty) {
+            now = wi_time_interval();
+            timeout = scan_interval - (now - last_event);
+
+            if(timeout <= 0.0) {
+                wi_lock_lock(wd_watch_lock);
+
+                if(wd_watch_enabled && wd_watch_dirty && wd_watch_last_event == last_event) {
+                    wd_watch_dirty = false;
+                    scan = true;
+                }
+
+                wi_lock_unlock(wd_watch_lock);
+
+                if(scan) {
+                    wd_watch_scan(NULL);
+                    wi_pool_drain(pool);
+                    continue;
+                }
+
+                continue;
+            }
+        } else {
+            timeout = 1.0;
+        }
+
+        if(timeout < 0.01)
+            timeout = 0.01;
+
+        if(!wi_fsevents_run_with_timeout(wd_watch_fsevents, timeout)) {
+            wi_log_error(WI_STR("Could not listen on watch fsevents: %m"));
+            wi_thread_sleep(1.0);
+
+            wi_lock_lock(wd_watch_lock);
+
+            if(wd_watch_enabled) {
+                wd_watch_dirty = true;
+                wd_watch_scan_interval = WD_WATCH_FALLBACK_INTERVAL;
+                wd_watch_last_event = wi_time_interval();
+            }
+
+            wi_lock_unlock(wd_watch_lock);
+        }
+
+        if(enabled)
+            wd_watch_drain_pipe();
+
+        wi_pool_drain(pool);
+    }
+
+    wi_release(pool);
+}
+
+
+
+static void wd_watch_fsevents_callback(wi_string_t *path) {
+    (void) path;
+
+    wi_lock_lock(wd_watch_lock);
+
+    if(wd_watch_enabled) {
+        wd_watch_dirty = true;
+        wd_watch_scan_interval = WD_WATCH_INTERVAL;
+        wd_watch_last_event = wi_time_interval();
+    }
+
+    wi_lock_unlock(wd_watch_lock);
 }
 
 
@@ -234,8 +383,8 @@ static void wd_watch_scan(wi_timer_t *timer) {
     wi_pool_t                   *pool;
     wi_fsenumerator_t           *fsenumerator;
     wi_fsenumerator_status_t    status;
-    wi_mutable_dictionary_t     *current_inodes, *current_signatures, *current_directories;
-    wi_mutable_array_t          *announcements, *unknown_directories, *new_directories;
+    wi_mutable_dictionary_t     *current_inodes, *current_signatures, *current_directories, *base_signatures;
+    wi_mutable_array_t          *announcements, *unknown_directories, *new_directories, *scanned_paths;
     wi_array_t                  *keys;
     wi_enumerator_t             *enumerator;
     wi_string_t                 *path, *filepath, *key, *signature, *candidate, *directorypath;
@@ -243,9 +392,11 @@ static void wd_watch_scan(wi_timer_t *timer) {
     wi_number_t                 *inode, *known_inode;
     wi_fs_stat_t                sb;
     wi_uinteger_t               i, j, count, directory_count;
-    wi_boolean_t                enabled, baseline, has_new_parent, suppress_announcement;
+    wi_boolean_t                enabled, baseline, has_new_parent, suppress_announcement, fsevents_complete, rebuild_fsevents;
 
     pool = wi_pool_init(wi_pool_alloc());
+    fsevents_complete = true;
+    rebuild_fsevents = false;
 
     wi_lock_lock(wd_watch_lock);
     enabled = wd_watch_enabled;
@@ -265,12 +416,14 @@ static void wd_watch_scan(wi_timer_t *timer) {
         return;
     }
 
-    current_inodes     = wi_mutable_dictionary();
-    current_signatures = wi_mutable_dictionary();
+    current_inodes      = wi_mutable_dictionary();
+    current_signatures  = wi_mutable_dictionary();
     current_directories = wi_mutable_dictionary();
-    announcements      = wi_mutable_array();
+    base_signatures     = wi_mutable_dictionary();
+    scanned_paths       = wi_mutable_array();
+    announcements       = wi_mutable_array();
     unknown_directories = wi_mutable_array();
-    new_directories    = wi_mutable_array();
+    new_directories     = wi_mutable_array();
     fsenumerator       = wi_fs_enumerator_at_path(path);
 
     if(!fsenumerator) {
@@ -302,6 +455,8 @@ static void wd_watch_scan(wi_timer_t *timer) {
             S_ISDIR(sb.mode) ? 'd' : 'f', sb.ino, sb.size, sb.mtime);
 
         wi_mutable_dictionary_set_data_for_key(current_inodes, inode, filepath);
+        wi_mutable_dictionary_set_data_for_key(base_signatures, signature, filepath);
+        wi_mutable_array_add_data(scanned_paths, filepath);
 
         if(S_ISDIR(sb.mode)) {
             directory_signature = wi_mutable_copy(signature);
@@ -311,18 +466,28 @@ static void wd_watch_scan(wi_timer_t *timer) {
         } else {
             wi_mutable_dictionary_set_data_for_key(current_signatures, signature, filepath);
         }
+    }
 
-        /*
-         * A directory is stable only when its complete subtree is stable. This
-         * keeps a directory pending while files are still being copied into it.
-         */
-        enumerator = wi_dictionary_key_enumerator(current_directories);
+    /*
+     * A directory is stable only when its complete subtree is stable. Build
+     * those subtree signatures by walking each item's ancestors instead of
+     * comparing every item with every directory. The old approach was O(N*D)
+     * on every two-second scan and could pin a CPU on large watch trees.
+     */
+    count = wi_array_count(scanned_paths);
 
-        while((directorypath = wi_enumerator_next_data(enumerator))) {
-            if(wd_watch_path_is_descendant_of_path(filepath, directorypath)) {
+    for(i = 0; i < count; i++) {
+        filepath = WI_ARRAY(scanned_paths, i);
+        signature = wi_dictionary_data_for_key(base_signatures, filepath);
+        directorypath = wi_string_by_deleting_last_path_component(filepath);
+
+        while(wd_watch_path_is_descendant_of_path(directorypath, path)) {
+            if(wi_dictionary_contains_key(current_directories, directorypath)) {
                 directory_signature = wi_dictionary_data_for_key(current_signatures, directorypath);
                 wi_mutable_string_append_format(directory_signature, WI_STR("|%@"), signature);
             }
+
+            directorypath = wi_string_by_deleting_last_path_component(directorypath);
         }
     }
 
@@ -336,6 +501,29 @@ static void wd_watch_scan(wi_timer_t *timer) {
     }
 
     baseline = wd_watch_baseline_pending;
+
+    if(wd_watch_fsevents_running && wd_watch_fsevents) {
+        if(wd_watch_fsevents_reset) {
+            wi_fsevents_remove_all_paths(wd_watch_fsevents);
+            wd_watch_fsevents_reset = false;
+        }
+
+        if(!wi_fsevents_add_path(wd_watch_fsevents, path)) {
+            wi_log_warn(WI_STR("Could not watch directory \"%@\" for filesystem events: %m"), path);
+            fsevents_complete = false;
+        }
+
+        enumerator = wi_dictionary_key_enumerator(current_directories);
+
+        while((directorypath = wi_enumerator_next_data(enumerator))) {
+            if(!wi_fsevents_add_path(wd_watch_fsevents, directorypath)) {
+                if(fsevents_complete)
+                    wi_log_warn(WI_STR("Could not watch directory \"%@\" for filesystem events: %m"), directorypath);
+
+                fsevents_complete = false;
+            }
+        }
+    }
 
     if(baseline) {
         wi_mutable_dictionary_set_dictionary(wd_watch_known_files, current_inodes);
@@ -375,8 +563,17 @@ static void wd_watch_scan(wi_timer_t *timer) {
             inode = wi_dictionary_data_for_key(current_inodes, filepath);
             known_inode = wi_dictionary_data_for_key(wd_watch_known_files, filepath);
 
-            if(!known_inode || !wi_is_equal(known_inode, inode))
+            if(!known_inode || !wi_is_equal(known_inode, inode)) {
                 wi_mutable_array_add_data(unknown_directories, filepath);
+
+                /*
+                 * inotify removes a watch when a directory is deleted, while
+                 * libwired still remembers the path. If a directory is recreated
+                 * at the same path, rebuild all watches once after this scan.
+                 */
+                if(known_inode && !wi_is_equal(known_inode, inode))
+                    rebuild_fsevents = true;
+            }
         }
 
         directory_count = wi_array_count(unknown_directories);
@@ -436,6 +633,28 @@ static void wd_watch_scan(wi_timer_t *timer) {
                 wi_mutable_dictionary_set_data_for_key(wd_watch_candidates, signature, filepath);
             }
         }
+    }
+
+    if(rebuild_fsevents && wd_watch_fsevents_running && wd_watch_fsevents) {
+        wi_fsevents_remove_all_paths(wd_watch_fsevents);
+        fsevents_complete = wi_fsevents_add_path(wd_watch_fsevents, path);
+
+        enumerator = wi_dictionary_key_enumerator(current_directories);
+
+        while((directorypath = wi_enumerator_next_data(enumerator))) {
+            if(!wi_fsevents_add_path(wd_watch_fsevents, directorypath))
+                fsevents_complete = false;
+        }
+    }
+
+    if(wd_watch_fsevents_running && wi_dictionary_count(wd_watch_candidates) > 0) {
+        wd_watch_dirty = true;
+        wd_watch_scan_interval = WD_WATCH_INTERVAL;
+        wd_watch_last_event = wi_time_interval();
+    } else if(wd_watch_fsevents_running && !fsevents_complete) {
+        wd_watch_dirty = true;
+        wd_watch_scan_interval = WD_WATCH_FALLBACK_INTERVAL;
+        wd_watch_last_event = wi_time_interval();
     }
 
     wi_lock_unlock(wd_watch_lock);
